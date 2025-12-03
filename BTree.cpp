@@ -62,5 +62,30 @@ struct BTreeNode {
             children[srcStart + i] = nullptr;
         }
     }
+
+    void Print_node(BTreeNode<T,ORDER>* node){
+        for (int i = 0; i <= node->n; i++)
+        {
+            cout << node->keys[i];
+            if (i < node->n - 1) cout << ",";
+        }
+    }
+    void Print_tree(BTrrNode node, int level = 0)
+    {
+        if (node==nullptr) return ;
+        for (int i = 0; i < level; i++)
+        {
+            cout << " ";
+        }
+        Print_node(node);
+        cout << endl;
+        if (!(node->is_leaf))
+        {
+            for (int i = 0; i <= node->n; i++)
+            {
+                Print_tree(node->children[i], level + 1);
+            }
+        }
+    }
 };
 
