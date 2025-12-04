@@ -16,9 +16,9 @@ struct BTreeNode
     {
         n = 0;
         is_leaf = leaf;
-        keys = new T[ORDER - 1]; //  because a node can have maximum order-1 keys
-        children = new BTreeNode<T, ORDER> *[ORDER];
-        for (int i = 0; i < ORDER; ++i)
+        keys = new T[ORDER]; //  will cause overflow but it will be detected 
+        children = new BTreeNode<T, ORDER> *[ORDER+1];
+        for (int i = 0; i <= ORDER; ++i)
             children[i] = nullptr; // set all child pointers to null
     }
 
@@ -32,6 +32,7 @@ struct BTreeNode
     {
         return n == (ORDER - 1); // return true if the node has maximum keys
     }
+
 
     int findInsertIndex(const T &key)
     {
@@ -64,22 +65,6 @@ struct BTreeNode
         children[idx] = nullptr;
     }
 
-    void moveKeysTo(int srcStart, int count, BTreeNode *dest, int destStart)
-    { // copy keys from a node to another
-        for (int i = 0; i < count; ++i)
-            dest->keys[destStart + i] = keys[srcStart + i];
-        dest->n += count;
-    }
-
-    void moveChildrenTo(int srcStart, int count, BTreeNode *dest, int destStart)
-    { // move child pointers from a node to another
-        for (int i = 0; i < count; ++i)
-        {
-            dest->children[destStart + i] = children[srcStart + i];
-            children[srcStart + i] = nullptr;
-        }
-    }
-
     void Print_node(BTreeNode<T, ORDER> *node)
     {
         for (int i = 0; i < node->n; i++)
@@ -95,7 +80,7 @@ struct BTreeNode
             return;
         for (int i = 0; i < level; i++)
         {
-            cout << " ";
+            cout << "  ";
         }
         Print_node(node);
         cout << endl;
@@ -115,49 +100,51 @@ class BTree
 private:
     BTreeNode<T, ORDER> *root;
 
-    // Split a full child of a non-full parent
+    // Split an overfull child (has ORDER keys instead of ORDER-1)
     void splitChild(BTreeNode<T, ORDER> *parent, int childIndex)
     {
         BTreeNode<T, ORDER> *fullChild = parent->children[childIndex];
         BTreeNode<T, ORDER> *newChild = new BTreeNode<T, ORDER>(fullChild->is_leaf);
 
-        int midIndex = (ORDER - 1) / 2;
-
-        // Move the right half of keys to the new child
-        int numKeysToMove = ORDER - 1 - midIndex - 1;
-        for (int i = 0; i < numKeysToMove; ++i)
+        // With ORDER keys (overfull), split at position ORDER/2
+        int midIndex = ORDER / 2;
+        
+        // Copy upper half to new child
+        int j = 0;
+        for (int i = midIndex + 1; i < fullChild->n; ++i)
         {
-            newChild->keys[i] = fullChild->keys[midIndex + 1 + i];
+            newChild->keys[j++] = fullChild->keys[i];
         }
-        newChild->n = numKeysToMove;
+        newChild->n = j;
 
-        // If not a leaf, move children as well
+        // Copy children if internal node
         if (!fullChild->is_leaf)
         {
-            for (int i = 0; i <= numKeysToMove; ++i)
+            j = 0;
+            for (int i = midIndex + 1; i <= fullChild->n; ++i)
             {
-                newChild->children[i] = fullChild->children[midIndex + 1 + i];
-                fullChild->children[midIndex + 1 + i] = nullptr;
+                newChild->children[j++] = fullChild->children[i];
+                fullChild->children[i] = nullptr;
             }
         }
 
-        // Update the full child's count
+        // Update fullChild's count (keeps left half)
         fullChild->n = midIndex;
 
-        // Shift parent's children to make room for new child
+        // Make room in parent for new child
         parent->shiftChildrenRightFrom(childIndex + 1);
         parent->children[childIndex + 1] = newChild;
 
-        // Insert the middle key into parent
+        // Move middle key to parent
         parent->insertKeyAt(childIndex, fullChild->keys[midIndex]);
     }
 
-    // Insert into a non-full node
+    // Insert into a node (may cause it to become overfull)
     void insertNonFull(BTreeNode<T, ORDER> *node, const T &key)
     {
         if (node->is_leaf)
         {
-            // Insert directly into leaf
+            // Insert directly into leaf (may become overfull)
             int idx = node->findInsertIndex(key);
             node->insertKeyAtLeaf(idx, key);
         }
@@ -165,31 +152,24 @@ private:
         {
             // Find the child to insert into
             int idx = node->findInsertIndex(key);
-
-            // If the child is full, split it first
-            if (node->children[idx]->isFull())
+            
+            // Recurse to child
+            insertNonFull(node->children[idx], key);
+            
+            // After recursion, if child is overfull, split it
+            if (node->children[idx]->n == ORDER)
             {
                 splitChild(node, idx);
-
-                // After split, determine which child to go to
-                if (key > node->keys[idx])
-                {
-                    idx++;
-                }
             }
-
-            insertNonFull(node->children[idx], key);
         }
     }
 
 public:
-    // Constructor - initialize empty tree
     BTree()
     {
         root = nullptr;
     }
 
-    // Insert a key into the tree
     void Insert(const T &key)
     {
         if (root == nullptr)
@@ -201,20 +181,21 @@ public:
         }
         else
         {
-            // If root is full, split it
-            if (root->isFull())
-            {
-                BTreeNode<T, ORDER> *newRoot = new BTreeNode<T, ORDER>(false);
-                newRoot->children[0] = root;
-                splitChild(newRoot, 0);
-                root = newRoot;
-            }
-
+            // Insert into root (may become overfull)
             insertNonFull(root, key);
+            
+            // If root became overfull, split it
+            if (root->n == ORDER)
+            {
+                BTreeNode<T, ORDER> *oldRoot = root;
+                root = new BTreeNode<T, ORDER>(false);  // New root
+                root->children[0] = oldRoot;
+                root->n = 0;  // Start with 0 keys
+                splitChild(root, 0);  // Split the old root
+            }
         }
     }
 
-    // Print the tree
     void Print()
     {
         if (root != nullptr)
@@ -225,6 +206,26 @@ public:
         {
             cout << "Tree is empty" << endl;
         }
+    }
+
+    ~BTree()
+{
+    deleteTree(root);
+}
+
+private:
+    void deleteTree(BTreeNode<T, ORDER> *node)
+    {
+        if (node == nullptr) return;
+        
+        if (! node->is_leaf)
+        {
+            for (int i = 0; i <= node->n; ++i)
+            {
+                deleteTree(node->children[i]);
+            }
+        }
+        delete node;
     }
 };
 
@@ -239,6 +240,7 @@ int main()
     t1.Insert(2);
     t1.Print();
 
+    cout<<endl;
     BTree<char, 5> t;
     t.Insert('G');
     t.Insert('I');
@@ -260,7 +262,5 @@ int main()
     t.Insert('P');
     t.Insert('Q');
 
-    t.Print(); 
-
-
+    t.Print();
 }
